@@ -122,8 +122,25 @@ app.patch('/applications/:id', async (req, res) => {
     const result = await Application.findByIdAndUpdate(id, updateDoc, { new: true });
     res.send(result);
 });
-
-
+app.post('/reviews', async (req, res) => {
+    try {
+        const reviewData = req.body;
+        const result = await Review.create(reviewData);
+        res.status(201).send(result);
+    } catch (error) {
+        res.status(400).send({ message: "Could not post review", error });
+    }
+});
+app.get('/reviews/:scholarshipId', async (req, res) => {
+    const { scholarshipId } = req.params;
+    const result = await Review.find({ scholarshipId: scholarshipId }).sort({ reviewDate: -1 });
+    res.send(result);
+});
+app.get('/my-reviews/:email', async (req, res) => {
+    const email = req.params.email;
+    const result = await Review.find({ userEmail: email });
+    res.send(result);
+});
   
 
 
