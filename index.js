@@ -93,7 +93,35 @@ app.get('/scholarship/:id', async (req, res) => {
     const result = await Scholarship.findById(id);
     res.send(result);
 });
-
+app.post('/applications', async (req, res) => {
+    try {
+        const applicationData = req.body;
+        const result = await Application.create(applicationData);
+        res.status(201).send(result);
+    } catch (error) {
+        res.status(400).send({ message: "Application failed", error });
+    }
+});
+app.get('/my-applications/:email', async (req, res) => {
+    const email = req.params.email;
+    const result = await Application.find({ userEmail: email });
+    res.send(result);
+});
+app.patch('/applications/:id', async (req, res) => {
+    const id = req.params.id;
+    const { status, feedback, paymentStatus } = req.body;
+    
+    const updateDoc = {
+        $set: {
+            applicationStatus: status,
+            feedback: feedback,
+            paymentStatus: paymentStatus
+        }
+    };
+    
+    const result = await Application.findByIdAndUpdate(id, updateDoc, { new: true });
+    res.send(result);
+});
 
 
   
