@@ -23,7 +23,50 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+    const db = client.db('scholarStream_db');
+    const ScholarshipsCollection = db.collection('scholarship');
+    const UsersCollection = db.collection('Users');
+    const ApplicationsCollection = db.collection('Applications');
+    const ReviewsCollection = db.collection('reviews')
 
+
+    app.post('/users', async (req, res) => {
+    const user = req.body;
+    const query = { email: user.email };
+    
+    
+    const existingUser = await User.findOne(query);
+    if (existingUser) {
+        return res.send({ message: 'User already exists', insertedId: null });
+    }
+    
+    const result = await User.create(user);
+    res.send(result);
+});
+
+app.get('/users/role/:email', async (req, res) => {
+    const email = req.params.email;
+    const user = await User.findOne({ email: email });
+    
+    if (user) {
+        res.send({ role: user.role });
+    } else {
+        res.status(404).send({ message: 'User not found' });
+    }
+});
+const verifyAdmin = async (req, res, next) => {
+    const email = req.decoded.email; 
+    const user = await User.findOne({ email: email });
+    const isAdmin = user?.role === 'Admin';
+    
+    if (!isAdmin) {
+        return res.status(403).send({ message: 'Forbidden access' });
+    }
+    next();
+};
+
+
+  
 
 
 
