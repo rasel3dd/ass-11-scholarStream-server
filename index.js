@@ -40,7 +40,7 @@ async function run() {
         return res.send({ message: 'User already exists', insertedId: null });
     }
     
-    const result = await User.create(user);
+    const result = await UsersCollection(user);
     res.send(result);
 });
 
@@ -64,6 +64,36 @@ const verifyAdmin = async (req, res, next) => {
     }
     next();
 };
+
+app.post('/scholarships', async (req, res) => {
+    try {
+        const scholarshipData = req.body;
+        const result = await Scholarship.create(scholarshipData);
+        res.status(201).send(result);
+    } catch (error) {
+        res.status(400).send({ message: "Error adding scholarship", error });
+    }
+});
+app.get('/scholarships', async (req, res) => {
+    const { search, category } = req.query;
+    let query = {};
+
+    if (search) {
+        query.scholarshipName = { $regex: search, $options: 'i' };
+    }
+    if (category) {
+        query.subjectCategory = category;
+    }
+
+    const result = await Scholarship.find(query).sort({ scholarshipPostDate: -1 });
+    res.send(result);
+});
+app.get('/scholarship/:id', async (req, res) => {
+    const id = req.params.id;
+    const result = await Scholarship.findById(id);
+    res.send(result);
+});
+
 
 
   
