@@ -1,165 +1,115 @@
-const express = require('express')
+const express = require('express');
 const cors = require('cors');
-const app = express();
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
-const port = process.env.PORT || 5000
+const app = express();
+const port = process.env.PORT || 5000;
 
+const corsOptions = {
+    origin: ['http://localhost:5173'],
+    credentials: true,
+    optionSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(cors());
-
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.k6tagxb.mongodb.net/?appName=Cluster0`;
-
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
-});
-async function run() {
-  try {
-    // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
-    const db = client.db('scholarStream_db');
-    const ScholarshipsCollection = db.collection('scholarship');
-    const UsersCollection = db.collection('Users');
-    const ApplicationsCollection = db.collection('Applications');
-    const ReviewsCollection = db.collection('reviews')
-
-
-    app.post('/users', async (req, res) => {
-    const user = req.body;
-    const query = { email: user.email };
-    
-    
-    const existingUser = await User.findOne(query);
-    if (existingUser) {
-        return res.send({ message: 'User already exists', insertedId: null });
-    }
-    
-    const result = await UsersCollection(user);
-    res.send(result);
-});
-
-app.get('/users/role/:email', async (req, res) => {
-    const email = req.params.email;
-    const user = await User.findOne({ email: email });
-    
-    if (user) {
-        res.send({ role: user.role });
-    } else {
-        res.status(404).send({ message: 'User not found' });
+    serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
     }
 });
-const verifyAdmin = async (req, res, next) => {
-    const email = req.decoded.email; 
-    const user = await User.findOne({ email: email });
-    const isAdmin = user?.role === 'Admin';
-    
-    if (!isAdmin) {
-        return res.status(403).send({ message: 'Forbidden access' });
+
+const verifyToken = (req, res, next) => {
+    if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'unauthorized access' });
     }
-    next();
+    const token = req.headers.authorization.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ message: 'unauthorized access' });
+        }
+        req.decoded = decoded;
+        next();
+    });
 };
 
-app.post('/scholarships', async (req, res) => {
+async function run() {
     try {
-        const scholarshipData = req.body;
-        const result = await Scholarship.create(scholarshipData);
-        res.status(201).send(result);
-    } catch (error) {
-        res.status(400).send({ message: "Error adding scholarship", error });
+        const db = client.db('scholarStream_db');
+        const ScholarshipsCollection = db.collection('scholarship');
+        const UsersCollection = db.collection('Users');
+        const ApplicationsCollection = db.collection('Applications');
+
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email: email };
+            const user = await UsersCollection.findOne(query);
+            const isAdmin = user?.role === 'Admin';
+            if (!isAdmin) {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+            next();
+        };
+
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' });
+            res.send({ token });
+        });
+
+        app.get('/scholarships', async (req, res) => {
+            const { search, category } = req.query;
+            let query = {};
+            if (search) query.scholarshipName = { $regex: search, $options: 'i' };
+            if (category) query.subjectCategory = category;
+            const result = await ScholarshipsCollection.find(query).sort({ _id: -1 }).toArray();
+            res.send(result);
+        });
+
+        app.post('/scholarships', verifyToken, verifyAdmin, async (req, res) => {
+            const scholarshipData = req.body;
+            const result = await ScholarshipsCollection.insertOne(scholarshipData);
+            res.send(result);
+        });
+
+        app.delete('/scholarships/:id', verifyToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }; 
+            const result = await ScholarshipsCollection.deleteOne(query); 
+            res.send(result);
+        });
+
+        app.get('/users/role/:email', async (req, res) => {
+            const email = req.params.email;
+            const user = await UsersCollection.findOne({ email });
+            res.send({ role: user?.role || 'Student' });
+        });
+
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            const query = { email: user.email };
+            const existingUser = await UsersCollection.findOne(query);
+            if (existingUser) {
+                return res.send({ message: 'User already exists', insertedId: null });
+            }
+            const result = await UsersCollection.insertOne({
+                ...user,
+                role: user.role || 'Student',
+            });
+            res.send(result);
+        });
+
+        console.log('Successfully connected to MongoDB!');
+    } finally {
+        // Keep connection open
     }
-});
-app.get('/scholarships', async (req, res) => {
-    const { search, category } = req.query;
-    let query = {};
-
-    if (search) {
-        query.scholarshipName = { $regex: search, $options: 'i' };
-    }
-    if (category) {
-        query.subjectCategory = category;
-    }
-
-    const result = await Scholarship.find(query).sort({ scholarshipPostDate: -1 });
-    res.send(result);
-});
-app.get('/scholarship/:id', async (req, res) => {
-    const id = req.params.id;
-    const result = await Scholarship.findById(id);
-    res.send(result);
-});
-app.post('/applications', async (req, res) => {
-    try {
-        const applicationData = req.body;
-        const result = await Application.create(applicationData);
-        res.status(201).send(result);
-    } catch (error) {
-        res.status(400).send({ message: "Application failed", error });
-    }
-});
-app.get('/my-applications/:email', async (req, res) => {
-    const email = req.params.email;
-    const result = await Application.find({ userEmail: email });
-    res.send(result);
-});
-app.patch('/applications/:id', async (req, res) => {
-    const id = req.params.id;
-    const { status, feedback, paymentStatus } = req.body;
-    
-    const updateDoc = {
-        $set: {
-            applicationStatus: status,
-            feedback: feedback,
-            paymentStatus: paymentStatus
-        }
-    };
-    
-    const result = await Application.findByIdAndUpdate(id, updateDoc, { new: true });
-    res.send(result);
-});
-app.post('/reviews', async (req, res) => {
-    try {
-        const reviewData = req.body;
-        const result = await Review.create(reviewData);
-        res.status(201).send(result);
-    } catch (error) {
-        res.status(400).send({ message: "Could not post review", error });
-    }
-});
-app.get('/reviews/:scholarshipId', async (req, res) => {
-    const { scholarshipId } = req.params;
-    const result = await Review.find({ scholarshipId: scholarshipId }).sort({ reviewDate: -1 });
-    res.send(result);
-});
-app.get('/my-reviews/:email', async (req, res) => {
-    const email = req.params.email;
-    const result = await Review.find({ userEmail: email });
-    res.send(result);
-});
-  
-
-
-
-
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
-  }
 }
 run().catch(console.dir);
 
-app.get('/', (req, res) => {
-  res.send('ScholarStream')
-})
-
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+app.get('/', (req, res) => res.send('ScholarStream Server is Running'));
+app.listen(port, () => console.log(`Server listening on port ${port}`));
