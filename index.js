@@ -3,6 +3,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -56,6 +57,32 @@ async function run() {
             next();
         };
 
+        
+        app.post('/create-payment-intent', verifyToken, async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100); 
+
+            if (!price || amount < 1) return res.send({ clientSecret: null });
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: 'usd',
+                payment_method_types: ['card'],
+            });
+
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        });
+
+    
+        app.post('/applications', verifyToken, async (req, res) => {
+            const applicationData = req.body;
+            const result = await ApplicationsCollection.insertOne(applicationData);
+            res.send(result);
+        });
+
+    
         app.post('/jwt', async (req, res) => {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' });
@@ -75,6 +102,23 @@ async function run() {
             const scholarshipData = req.body;
             const result = await ScholarshipsCollection.insertOne(scholarshipData);
             res.send(result);
+        });
+
+        app.get('/scholarships/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: 'Invalid Object ID' });
+                }
+                const query = { _id: new ObjectId(id) };
+                const result = await ScholarshipsCollection.findOne(query);
+                if (!result) {
+                    return res.status(404).send({ message: 'Scholarship not found' });
+                }
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: 'Server error', error });
+            }
         });
 
         app.delete('/scholarships/:id', verifyToken, verifyAdmin, async (req, res) => {
@@ -105,9 +149,7 @@ async function run() {
         });
 
         console.log('Successfully connected to MongoDB!');
-    } finally {
-        // Keep connection open
-    }
+    } finally { }
 }
 run().catch(console.dir);
 
